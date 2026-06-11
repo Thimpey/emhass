@@ -2794,6 +2794,63 @@ class TestOptimization(unittest.IsolatedAsyncioTestCase):
             "Heating power must be non-negative",
         )
 
+    def _solve_island_semicont(self, opt):
+        """Island balance (no grid import/export, no curtailment) with flat PV at an
+        intermediate value forces a semi_cont load to a power it cannot take (it must
+        be 0 or nominal) -> MIP infeasible -> relaxed-LP fallback succeeds at 1500 W."""
+        df = self.df_input_data_dayahead
+        n = len(df)
+        return opt.perform_optimization(
+            df,
+            np.full(n, 1500.0),  # flat PV, between 0 and nominal (3000)
+            np.zeros(n),  # no baseload
+            df[opt.var_load_cost].values,
+            df[opt.var_prod_price].values,
+        )
+
+    def test_relaxed_fallback_does_not_poison_cached_problem(self):
+        """A relaxed-LP fallback replaces self.prob with the relaxed problem. The next
+        solve on the SAME Optimization object must rebuild the full MILP, not silently
+        re-solve the cached relaxed problem and report a plain "Optimal".
+
+        Regression: without the rebuild, one failed solve degrades every later run of a
+        long-lived (add-on / cached) process until restart -- semi_cont is dropped while
+        the status still reads "Optimal".
+        """
+        self.df_input_data_dayahead = self.prepare_forecast_data()
+        self.optim_conf["set_use_pv"] = True
+        self.optim_conf["set_use_battery"] = False
+        self.optim_conf["number_of_deferrable_loads"] = 1
+        self.optim_conf["nominal_power_of_deferrable_loads"] = [3000]
+        self.optim_conf["minimum_power_of_deferrable_loads"] = [0]
+        self.optim_conf["treat_deferrable_load_as_semi_cont"] = [True]
+        self.optim_conf["set_deferrable_load_single_constant"] = [False]
+        self.optim_conf["set_deferrable_startup_penalty"] = [0.0]
+        self.optim_conf["set_deferrable_max_startups"] = [0]
+        self.optim_conf["operating_hours_of_each_deferrable_load"] = [12]
+        self.optim_conf["start_timesteps_of_each_deferrable_load"] = [0]
+        self.optim_conf["end_timesteps_of_each_deferrable_load"] = [0]
+        self.optim_conf["def_load_config"] = []
+        self.optim_conf["shared_thermal_tanks"] = []
+        self.optim_conf["deferrable_load_groups"] = []
+        self.optim_conf["is_electric_load"] = [True]
+        self.plant_conf["maximum_power_from_grid"] = 0
+        self.plant_conf["maximum_power_to_grid"] = 0
+        self.plant_conf["compute_curtailment"] = False
+
+        opt = self.create_optimization()
+        # First solve genuinely needs the relaxed LP and labels it honestly.
+        self._solve_island_semicont(opt)
+        self.assertEqual(opt.optim_status, "Optimal (Relaxed)")
+        # Second solve on the SAME object must rebuild and stay honest, not report a
+        # plain "Optimal" produced by re-solving the cached relaxed problem.
+        self._solve_island_semicont(opt)
+        self.assertEqual(
+            opt.optim_status,
+            "Optimal (Relaxed)",
+            "cached relaxed problem was reused on the next solve and reported plain 'Optimal'",
+        )
+
     def test_persist_q_input_infeasible_fallback(self):
         """Test that _persist_q_input resets q_input_start after an infeasible solve.
 

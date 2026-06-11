@@ -227,6 +227,10 @@ class Optimization:
 
         # Note: The self.prob object will be constructed in a subsequent step
         self.prob = None
+        # Set when a relaxed-LP fallback replaces self.prob with the relaxed
+        # problem; forces a clean rebuild on the next solve so a cached object
+        # doesn't keep silently running relaxed (see perform_optimization).
+        self._rebuild_after_relaxed = False
 
     def _init_soc_recovery_params(self) -> None:
         """Initialize CVXPY parameters used for out-of-band SOC recovery."""
@@ -3715,6 +3719,13 @@ class Optimization:
         sum to it within a few milliseconds.
         """
         _build_start_perf = time.perf_counter() if stage_times is not None else 0.0
+        # If the previous solve fell back to the relaxed LP, self.prob holds the
+        # relaxed problem (semi_cont / single_constant dropped). Discard it so this
+        # solve rebuilds the full MILP instead of silently re-solving the relaxed
+        # one and reporting plain "Optimal".
+        if self._rebuild_after_relaxed:
+            self.prob = None
+            self._rebuild_after_relaxed = False
         # Dynamic Resizing
         # If the input data length differs from the initialized N, we must rebuild the problem.
         current_n = len(data_opt)
@@ -4738,6 +4749,12 @@ class Optimization:
             # 5. Restore Configuration
             self.optim_conf["treat_deferrable_load_as_semi_cont"] = original_semi_cont
             self.optim_conf["set_deferrable_load_single_constant"] = original_single_const
+
+            # self.prob now holds the relaxed problem. Force a rebuild on the next
+            # solve so a cached Optimization object doesn't keep re-solving the
+            # relaxed problem (and reporting plain "Optimal") until the process
+            # restarts.
+            self._rebuild_after_relaxed = True
 
         # Stage-timer breadcrumb: end of solve phase, start of extract phase.
         _extract_start_perf = time.perf_counter() if stage_times is not None else 0.0
