@@ -1598,23 +1598,48 @@ class TestUtils(unittest.IsolatedAsyncioTestCase):
         topo = {
             "extend_deferrable_loads": True,
             "sources": [
-                {"id": "hp", "type": "heatpump", "supply_temperature": 45,
-                 "carnot_efficiency": 0.45, "nominal_power": 3000}
+                {
+                    "id": "hp",
+                    "type": "heatpump",
+                    "supply_temperature": 45,
+                    "carnot_efficiency": 0.45,
+                    "nominal_power": 3000,
+                }
             ],
             "storage": [
-                {"id": "buffer", "volume": 0.1, "min_temperature": [25] * 48, "max_temperature": [45] * 48},
-                {"id": "house", "thermal_mass": 18, "loss_coefficient": 0.5,
-                 "min_temperature": [19.5] * 48, "max_temperature": [21.5] * 48},
+                {
+                    "id": "buffer",
+                    "volume": 0.1,
+                    "min_temperature": [25] * 48,
+                    "max_temperature": [45] * 48,
+                },
+                {
+                    "id": "house",
+                    "thermal_mass": 18,
+                    "loss_coefficient": 0.5,
+                    "min_temperature": [19.5] * 48,
+                    "max_temperature": [21.5] * 48,
+                },
             ],
             "flows": [
                 {"from": "hp", "to": "buffer"},
-                {"from": "buffer", "to": "house", "transfer_coefficient": 0.7, "max_transfer_power": 12000},
+                {
+                    "from": "buffer",
+                    "to": "house",
+                    "transfer_coefficient": 0.7,
+                    "max_transfer_power": 12000,
+                },
             ],
         }
         _, _, out, _ = await treat_runtimeparams(
             orjson.dumps({"heat_topology": topo}).decode("utf-8"),
-            params_json, retrieve_hass_conf, optim_conf, plant_conf,
-            "dayahead-optim", logger, emhass_conf,
+            params_json,
+            retrieve_hass_conf,
+            optim_conf,
+            plant_conf,
+            "dayahead-optim",
+            logger,
+            emhass_conf,
         )
         self.assertEqual(len(out["tank_transfers"]), 1)
         self.assertEqual(out["tank_transfers"][0]["from"], "buffer")
